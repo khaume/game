@@ -56,10 +56,10 @@ class GridMove:
         self.score = 0
         self.gamma = 0.5
         self.learning_rate = 0.1
-        self.random_factor = 0.5
+        self.random_factor = 0.1
 
         # Set reward and Q matrices
-        self.Q = np.ones((25, 4))
+        self.Q = np.zeros((25, 4))
         self.R = np.zeros((25, 4))
 
         # Adding rewards for goal and obstacles.
@@ -224,7 +224,7 @@ class GridMove:
         while self.gen_counter < self.max_gens:
             self.step_counter += 1
 
-            clock.tick(100)
+            clock.tick(80)
 
             player_state = self.state_from_location(self.player_position)
 
@@ -395,22 +395,17 @@ class GridMove:
 
 
 if __name__ == '__main__':
-    gm = GridMove(obs_1_state=12,
-                  obs_2_state=16,
-                  goal_state=17,
-                  max_gens=20)
+    gm = GridMove(obs_1_state=1,
+                  obs_2_state=8,
+                  goal_state=24,
+                  max_gens=50)
 
     gm.train_run()
+    plt.plot(range(len(gm.performance_array)), gm.performance_array)
+    plt.show()
+
+    # gm.bot_run()
+    # gm.play()
 
     # print(np.around(gm.Q, 3))
     # print(gm.performance_array)
-
-    plt.plot(range(len(gm.performance_array)), gm.performance_array)
-    # print(gm.R)
-
-    # gm.bot_run()
-
-    # gm.play()
-
-
-    plt.show()
