@@ -4,6 +4,7 @@ import pygame
 from pygame.locals import *  # noqa
 import sys
 import random
+import numpy as np
 
 
 class FlappyBird:
@@ -28,12 +29,32 @@ class FlappyBird:
         self.counter = 0
         self.offset = random.randint(-110, 110)
 
+        self.centerdot = pygame.Surface((5, 5))
+        self.centerdot.fill((0, 0, 0))
+
+        self.R = np.zeros((22, 48))
+        # Add reward when bird is in middle of gap and passing walls
+        self.R[self.dy_to_index(0)][self.dx_to_index(-80)] = 100
+
+        # Add punishment when hitting wall
+        # for yindex in self.dy_to_index(range()
+
+
+    def dx_to_index(self, dx):
+        xmin = -149.9
+        return int(dx - xmin) // 10
+
+    def dy_to_index(self, dy):
+        ymin = -109.9
+        return int(dy - ymin) // 10
+
     def updateWalls(self):
         self.wallx -= 2
         if self.wallx < -80:
             self.wallx = 400
             self.counter += 1
-            self.offset = random.randint(-110, 110)
+            # self.offset = random.randint(-110, 110)
+            self.offset = 0
 
     def birdUpdate(self):
         if self.jump:
@@ -66,7 +87,10 @@ class FlappyBird:
             self.gravity = 5
 
     def state_monitor(self):
-        return 'Bird-Wall distance: ' + str(self.wallx - self.birdX - 44)
+        bird_wall_dist = self.wallx - self.birdX - 44
+        gap_center = 0 - self.gap/2 + 500 - self.offset
+
+        return [gap_center, self.birdY+15, bird_wall_dist]
 
     def run(self):
         clock = pygame.time.Clock()
@@ -101,9 +125,14 @@ class FlappyBird:
                 self.sprite = 0
             self.updateWalls()
             self.birdUpdate()
-            print(self.state_monitor())
-            if self.dead:
-                print('DEAD')
+
+            if not self.dead:
+                print(self.state_monitor())
+
+            self.screen.blit(self.centerdot, (self.wallx,
+                                              0 - self.gap/2 + 500 - self.offset))
+
+
             pygame.display.update()
 
 if __name__ == "__main__":
