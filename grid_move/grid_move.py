@@ -42,6 +42,7 @@ class GridMove:
 
         # Array for recording performance for each generation.
         self.performance_array = np.zeros((self.max_gens, 1))
+        self.history_array = np.zeros((STATE_NUM, 1))
 
         # Set screen.
         self.width, self.height = 500, 500
@@ -64,8 +65,6 @@ class GridMove:
         self.goal = pygame.Surface((100, 100))
         self.goal.fill(GREEN)
         self.goal_position = self.location_from_state(goal_state, field=True)
-
-        self.score = 0
 
         # Initialize reward and Q matrices.
         self.Q = np.zeros((25, 4))
@@ -110,7 +109,7 @@ class GridMove:
                         (position[1] - 30) // 100]
 
         # Then find the state number from the indices. Example 2, 3 --> 17
-        player_state = (player_index[1] + 1) * 5 - (5 - player_index[0])
+        player_state = player_index[1] * 5 + player_index[0]
 
         return player_state
 
@@ -123,7 +122,6 @@ class GridMove:
         # Example: 2, 3 --> 230, 330
         position = [player_index[0] * 100 + 30,
                     player_index[1] * 100 + 30]
-
 
         # If field=True, then we are finding the position for an obstacle or the goal, and we want the upper
         # left corner of the state, so we subtract 30, 30
@@ -152,6 +150,9 @@ class GridMove:
         elif direction == 3 and self.player_position[0] < 400:
             self.player_position[0] += 100
 
+    def record_state(self):
+        self.history_array[self.state_from_location(self.player_position)] += 1
+
     def check_win_loss(self):
         # Check if the player is on a goal or obstacle.
 
@@ -173,11 +174,10 @@ class GridMove:
                 # Reset player position.
                 self.player_position = self.location_from_state(0)
 
-    def train(self, iter):
-        counter = 0
+    def train(self, iteration):
 
         clock = pygame.time.Clock()
-        while counter < iter:
+        while self.gen_counter < self.max_gens:
             clock.tick(10)
 
             player_state = self.state_from_location(self.player_position)
@@ -209,10 +209,8 @@ class GridMove:
                 # print('Updating Q[{}][{}] to: '.format(player_state, action), self.R[player_state][action] + self.gamma * max_Q)
 
                 self.move(action)
+                self.check_win_loss()
                 player_state = self.state_from_location(self.player_position)
-
-            # if player_state in [self.goal_state, self.obs_1_state, self.obs_2_state]:
-            #     player_state = 0
 
             self.player_position = self.location_from_state(player_state)
 
@@ -224,7 +222,6 @@ class GridMove:
 
             pygame.display.update()
 
-            counter += 1
 
     def train_run(self):
         # In this method, the Q learning algorithm will update the Q matrix while the player moves around in a
@@ -257,14 +254,16 @@ class GridMove:
                     print('Random action: ', action_list)
 
             else:
-                # Find the max Q value, meaning for the current state, what is the maximum value possible.
+                # Find the max Q value, meaning for the current state, what is the maximum value possible  taking any
+                # action.
                 max_Q = np.max(self.Q[player_state])
-                # Find the moves which have this value. In the case that more than one move have same max Q value,
-                # we make a list out of them. (This is especially the case in the beginning when max Q is zero almost
-                # everywhere.
+
+                # Find the moves which have this value. We make a list of these moves, because there may be more
+                # than one move which has same max Q value.
+                # This is especially the case in the beginning when max Q is zero almost everywhere.
                 action_list = np.argwhere(self.Q[player_state] == max_Q).flatten().tolist()
 
-                # Shuffle the list.
+                # Shuffle the list to avoid always picking the lowest action.
                 action_list = random.sample(action_list, len(action_list))
                 print('non random actions are ', action_list)
 
@@ -287,16 +286,11 @@ class GridMove:
                     break
 
             if self.R[player_state][action] == -1:
-                print('had to skip!')
-                print('-'*10)
-                print('-'*10)
                 continue
 
             if state_change is None:
-                print('had to skip!')
-                print('-'*10)
-                print('-'*10)
-                continue
+                print('setting state change manually')
+                state_change = STATE_CHANGE_FROM_ACTION[action]
 
             next_state = player_state + state_change
             # print('Next state: ', next_state)
@@ -307,10 +301,12 @@ class GridMove:
             self.Q[player_state][action] = (1 - self.learning_rate) * self.Q[player_state][action] + \
                                            self.learning_rate * (self.R[player_state][action] + self.gamma * max_Q)
 
-            print('Updating Q[{}][{}] to: '.format(player_state, action), self.R[player_state][action] + self.gamma * max_Q)
+            print('Updating Q[{}][{}] to: '.format(player_state, action),
+                  self.R[player_state][action] + self.gamma * max_Q)
 
             self.move(action)
             self.check_win_loss()
+            self.record_state()
 
             self.screen.blit(self.background, (0, 0))
             self.screen.blit(self.obstacle[0], (self.obstacle_positions[0]))
@@ -354,6 +350,8 @@ class GridMove:
                     self.screen.blit(self.goal, self.goal_position)
                     self.screen.blit(self.player, (self.player_position[0], self.player_position[1],))
 
+                    self.state_from_location(self.player_position)
+
                     pygame.display.update()
 
 
@@ -364,8 +362,12 @@ if __name__ == '__main__':
                   max_gens=50)
 
     gm.train_run()
-    # plt.plot(range(len(gm.performance_array)), gm.performance_array)
-    # plt.show()
+
+    plt.plot(range(len(gm.performance_array)), gm.performance_array)
+    plt.show()
+
+    plt.imshow(gm.history_array.reshape((5, 5)), cmap='hot', interpolation='nearest')
+    plt.show()
     # gm.play()
 
     # print(np.around(gm.Q, 3))
