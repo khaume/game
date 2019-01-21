@@ -11,12 +11,12 @@ RED = 255, 0, 0
 BLUE = 0, 0, 255
 GREEN = 0, 255, 0
 
-STATE_CHANGE_FROM_ACTION = {0: -5,
-                            1: 5,
-                            2: -1,
-                            3: 1}
+STATE_CHANGE_FROM_ACTION = {0: -5,  # Move up
+                            1: 5,  # Move down
+                            2: -1,  # Move left
+                            3: 1}  # Move right
 
-STATE_NUM = 25
+STATE_NUM = 25  # Number of states
 
 
 class GridMove:
@@ -102,7 +102,8 @@ class GridMove:
         for i in range(20, 25):
             self.R[i, 1] = -1
 
-    def state_from_location(self, position):
+    @staticmethod
+    def state_from_position(position):
         # Get the state from a position.
         # First find the matrix indices on the board. Example: 230, 330 --> 2, 3
         player_index = [(position[0] - 30) // 100,
@@ -113,7 +114,8 @@ class GridMove:
 
         return player_state
 
-    def location_from_state(self, state, field=False):
+    @staticmethod
+    def location_from_state(state, field=False):
         # Find the location from a state.
         # Example: 17 --> 2, 3
         player_index = [state % 5,
@@ -151,13 +153,14 @@ class GridMove:
             self.player_position[0] += 100
 
     def record_state(self):
-        self.history_array[self.state_from_location(self.player_position)] += 1
+        # Record number of visits to each possible state.
+        self.history_array[self.state_from_position(self.player_position)] += 1
 
     def check_win_loss(self):
         # Check if the player is on a goal or obstacle.
 
         # If on goal.
-        if self.state_from_location(self.player_position) == self.goal_state:
+        if self.state_from_position(self.player_position) == self.goal_state:
             # Reset player position and increment the counter and update performance array
             self.player_position = self.location_from_state(0)
             self.gen_counter += 1
@@ -174,55 +177,6 @@ class GridMove:
                 # Reset player position.
                 self.player_position = self.location_from_state(0)
 
-    def train(self, iteration):
-
-        clock = pygame.time.Clock()
-        while self.gen_counter < self.max_gens:
-            clock.tick(10)
-
-            player_state = self.state_from_location(self.player_position)
-            print('player state is ', player_state)
-
-            # Take action
-            action = random.randint(0, 3)
-            print('Action: ', action)
-
-            # Encode action to state change
-            state_change = STATE_CHANGE_FROM_ACTION[action]
-
-            print('matrix: ', self.R[player_state][action])
-
-            # Find next state
-            if self.R[player_state][action] == -1:
-                continue
-
-            else:
-                # print('R of action: ', self.R[player_state][action])
-
-                next_state = player_state + state_change
-                # print('Next state: ', next_state)
-
-                max_Q = np.max(self.Q[next_state])
-                # print('Max Q: ', max_Q)
-
-                self.Q[player_state][action] = self.R[player_state][action] + self.gamma * max_Q
-                # print('Updating Q[{}][{}] to: '.format(player_state, action), self.R[player_state][action] + self.gamma * max_Q)
-
-                self.move(action)
-                self.check_win_loss()
-                player_state = self.state_from_location(self.player_position)
-
-            self.player_position = self.location_from_state(player_state)
-
-            self.screen.blit(self.background, (0, 0))
-            self.screen.blit(self.obstacle[0], (self.obstacle_positions[0]))
-            self.screen.blit(self.obstacle[1], (self.obstacle_positions[1]))
-            self.screen.blit(self.goal, self.goal_position)
-            self.screen.blit(self.player, (self.player_position[0], self.player_position[1],))
-
-            pygame.display.update()
-
-
     def train_run(self):
         # In this method, the Q learning algorithm will update the Q matrix while the player moves around in a
         # greedy manner. To begin with it is random, but quickly the Q matrix will provide a preference in the
@@ -236,77 +190,51 @@ class GridMove:
 
             self.step_counter += 1
 
-            player_state = self.state_from_location(self.player_position)
+            player_state = self.state_from_position(self.player_position)
 
-            # Chance to pick random move, otherwise pick max Q.
-            action = None
-            action_list = []
-            print('about to find move')
+            # Chance to pick random move, otherwise pick based on max Q.
             if random.uniform(0, 1) < self.random_factor:
-                # Take random action.
-                action = random.randint(0, 3)
-                if self.R[player_state][action] == -1:
-                    # If move would lead outside board, go opposite direction.
-                    action = 3 - action
+                # Take random action from the currently possible moves.
+                action_list = np.argwhere(self.R[player_state] >= 0).flatten().tolist()
 
-                else:
-                    action_list = [action]
-                    print('Random action: ', action_list)
+                # Shuffle the list to avoid always picking the lowest action.
+                action_list = random.sample(action_list, len(action_list))
 
             else:
-                # Find the max Q value, meaning for the current state, what is the maximum value possible  taking any
-                # action.
+                # Find the max Q value, meaning for the current state, what is the maximum
+                # value possible taking any action.
                 max_Q = np.max(self.Q[player_state])
 
                 # Find the moves which have this value. We make a list of these moves, because there may be more
                 # than one move which has same max Q value.
                 # This is especially the case in the beginning when max Q is zero almost everywhere.
                 action_list = np.argwhere(self.Q[player_state] == max_Q).flatten().tolist()
-
-                # Shuffle the list to avoid always picking the lowest action.
                 action_list = random.sample(action_list, len(action_list))
-                print('non random actions are ', action_list)
 
-            state_change = None
             # Evaluate the potential moves from the action_list.
-            for potential_action in action_list:
-                print('trying action: ', potential_action, 'from state ', player_state)
-                action = potential_action
+            state_change = None
+            action = None
+            for action in action_list:
 
-                # print('considering action: ', action)
-                # print('reward here is ', self.R[player_state][action])
-
+                # In case of bad move, update Q and continue.
                 if self.R[player_state][action] == -1:
-                    print('bad move')
+                    self.Q[player_state][action] = -1
                     continue
 
                 else:
-                    print('setting state change')
                     state_change = STATE_CHANGE_FROM_ACTION[action]
                     break
 
-            if self.R[player_state][action] == -1:
-                continue
-
-            if state_change is None:
-                print('setting state change manually')
-                state_change = STATE_CHANGE_FROM_ACTION[action]
-
             next_state = player_state + state_change
-            # print('Next state: ', next_state)
 
             max_Q = np.max(self.Q[next_state])
-            # print('Max Q: ', max_Q)
 
             self.Q[player_state][action] = (1 - self.learning_rate) * self.Q[player_state][action] + \
                                            self.learning_rate * (self.R[player_state][action] + self.gamma * max_Q)
 
-            print('Updating Q[{}][{}] to: '.format(player_state, action),
-                  self.R[player_state][action] + self.gamma * max_Q)
-
             self.move(action)
-            self.check_win_loss()
             self.record_state()
+            self.check_win_loss()
 
             self.screen.blit(self.background, (0, 0))
             self.screen.blit(self.obstacle[0], (self.obstacle_positions[0]))
@@ -350,22 +278,18 @@ class GridMove:
                     self.screen.blit(self.goal, self.goal_position)
                     self.screen.blit(self.player, (self.player_position[0], self.player_position[1],))
 
-                    self.state_from_location(self.player_position)
-
                     pygame.display.update()
 
 
 if __name__ == '__main__':
-    gm = GridMove(obs_1_state=1,
-                  obs_2_state=8,
-                  goal_state=24,
+    gm = GridMove(obs_1_state=12,
+                  obs_2_state=16,
+                  goal_state=17,
                   max_gens=50)
 
     gm.train_run()
-
     plt.plot(range(len(gm.performance_array)), gm.performance_array)
     plt.show()
-
     plt.imshow(gm.history_array.reshape((5, 5)), cmap='hot', interpolation='nearest')
     plt.show()
     # gm.play()
