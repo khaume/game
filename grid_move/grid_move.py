@@ -20,8 +20,21 @@ STATE_NUM = 25  # Number of states
 
 
 class GridMove:
-    def __init__(self, obs_1_state, obs_2_state, goal_state, max_gens):
+    """
+    Class for a small game of moving around on a board while trying to reach a goal field (state).
+    The game is mainly intended for applying a Q learning algorithm, which trains itself using the Bellman equation.
 
+    :param obs_1_state:     The state on the board with the first obstacle.
+    :param obs_2_state:     The state on the board with the second obstacle.
+    :param goal_state:      The state on the board with the goal state.
+    :param max_gens:        The maximum number of generations to run during training.
+    :param gamma:           Bellman equation value for gamma.
+    :param learning_rate:   Bellman equation value for learning rate (alpha).
+    :param random_factor:   Bellman equation value for the probability of taking a random move (not the best move)
+                            during training.
+    """
+
+    def __init__(self, obs_1_state, obs_2_state, goal_state, max_gens, gamma, learning_rate, random_factor):
         # Set obstacles and goal.
         self.obs_1_state = obs_1_state
         self.obs_2_state = obs_2_state
@@ -32,17 +45,21 @@ class GridMove:
         # Random factor is the fraction of moves which will not follow the greedy, optimal route, but take a random
         # action.
         self.max_gens = max_gens
-        self.gamma = 0.5
-        self.learning_rate = 0.1
-        self.random_factor = 0.1
+        self.gamma = gamma
+        self.learning_rate = learning_rate
+        self.random_factor = random_factor
 
         # Counters to keep track of generation and number of steps taken.
         self.gen_counter = 0
         self.step_counter = 0
+        self.norm_diff = 10
+        self.previous_norm = 0
+        self.current_norm = 0
 
         # Array for recording performance for each generation.
         self.performance_array = np.zeros((self.max_gens, 1))
         self.history_array = np.zeros((STATE_NUM, 1))
+        self.norm_diff_array = np.zeros((self.max_gens, 1))
 
         # Set screen.
         self.width, self.height = 500, 500
@@ -157,16 +174,21 @@ class GridMove:
         self.history_array[self.state_from_position(self.player_position)] += 1
 
     def check_win_loss(self):
-        # Check if the player is on a goal or obstacle.
+        # Check if the player is on a goal or obstacle and update performance and norm diff arrays.
 
         # If on goal.
         if self.state_from_position(self.player_position) == self.goal_state:
+            self.norm_diff = abs(self.previous_norm - self.current_norm)
+
             # Reset player position and increment the counter and update performance array
             self.player_position = self.location_from_state(0)
             self.gen_counter += 1
             self.performance_array[self.gen_counter - 1] = self.step_counter
+            self.norm_diff_array[self.gen_counter - 1] = self.norm_diff
 
-            print('win with generation ', self.gen_counter, ' after steps: ', self.step_counter)
+            print('norm diff: ', self.norm_diff, ' at generation: ', self.gen_counter, ' after steps: ',
+                  self.step_counter)
+            print(np.array_str(self.Q, precision=3, suppress_small=True))
 
             # Reset step_counter.
             self.step_counter = 0
@@ -184,7 +206,9 @@ class GridMove:
         # minima.
 
         clock = pygame.time.Clock()
+
         while self.gen_counter < self.max_gens:
+            # while self.norm_diff > 0.51:
             # Set the FPS of the game.
             clock.tick(80)
 
@@ -225,12 +249,15 @@ class GridMove:
                     state_change = STATE_CHANGE_FROM_ACTION[action]
                     break
 
+            # Update the next_state and update the Q matrix according to the Bellman equation.
             next_state = player_state + state_change
-
             max_Q = np.max(self.Q[next_state])
-
             self.Q[player_state][action] = (1 - self.learning_rate) * self.Q[player_state][action] + \
                                            self.learning_rate * (self.R[player_state][action] + self.gamma * max_Q)
+
+            # Update the previous and current norm values.
+            self.previous_norm = self.current_norm
+            self.current_norm = np.linalg.norm(self.Q)
 
             self.move(action)
             self.record_state()
@@ -243,6 +270,11 @@ class GridMove:
             self.screen.blit(self.player, (self.player_position[0], self.player_position[1],))
 
             pygame.display.update()
+
+        # Cut off last part of array, if it was too long (if there are zeros in the array)
+        if np.argwhere(self.performance_array == 0).any():
+            self.performance_array = self.performance_array[:np.argwhere(self.performance_array == 0)[0][0]]
+            self.norm_diff_array = self.norm_diff_array[:np.argwhere(self.norm_diff_array == 0)[0][0]]
 
     def play(self):
         clock = pygame.time.Clock()
@@ -284,12 +316,20 @@ class GridMove:
 if __name__ == '__main__':
     gm = GridMove(obs_1_state=12,
                   obs_2_state=16,
-                  goal_state=17,
-                  max_gens=50)
+                  goal_state=22,
+                  max_gens=100,
+                  gamma=0.5,
+                  learning_rate=0.1,
+                  random_factor=0.1)
 
     gm.train_run()
+    plt.subplot(2, 2, 1)
     plt.plot(range(len(gm.performance_array)), gm.performance_array)
-    plt.show()
+
+    plt.subplot(2, 2, 3)
+    plt.plot(range(len(gm.norm_diff_array)), gm.norm_diff_array)
+
+    plt.subplot(2, 2, 2)
     plt.imshow(gm.history_array.reshape((5, 5)), cmap='hot', interpolation='nearest')
     plt.show()
     # gm.play()
