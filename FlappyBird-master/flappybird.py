@@ -13,12 +13,18 @@ Y_CHANGE_FROM_ACTION = {0: 0,
 class FlappyBird:
     def __init__(self, max_gens):
 
+        self.norm_diff = 10
+        self.previous_norm = 0
+        self.current_norm = 0
+
+
+
         self.max_gens = max_gens
         self.gen_counter = 0
         self.step_counter = 0
         self.random_factor = 0.0
         self.gamma = 0.5
-        self.learning_rate = 0.1
+        self.learning_rate = 0.9
 
         self.screen = pygame.display.set_mode((400, 700))
         self.bird = pygame.Rect(65, 50, 50, 50)
@@ -44,11 +50,15 @@ class FlappyBird:
         self.centerdot = pygame.Surface((5, 5))
         self.centerdot.fill((0, 0, 0))
 
+        self.chain = np.zeros((5, 3))
+
         # Dim: action, dy, dx
-        self.R = np.zeros((2, 70, 48))
+        self.R = np.zeros((2, 35, 24))
 
         # Add reward when bird is in middle of gap and jumps while passing walls
         self.R[1, self.dy_to_index(0), self.dx_to_index(0)] = 100
+        self.R[1, self.dy_to_index(0), self.dx_to_index(80)] = 100
+        self.R[1, self.dy_to_index(0), self.dx_to_index(180)] = 100
 
         # EDIT: Below is removed because it is too much manipulation.
         # Should happen while updating Q matrix
@@ -59,16 +69,18 @@ class FlappyBird:
         #     self.R[:, self.dy_to_index(-64), xindex] = -100
         #
         #     self.R[:, self.dy_to_index(65), xindex] = -100
+
+        # SECOND EDIT: SHOULD ALSO BE MANUAL
         for y in range(350, 435):
             yindex = self.dy_to_index(y)
 
             self.R[1, yindex, :] = -100
 
-        self.Q = np.zeros((2, 120, 48))
-        # self.Q = np.random.rand(2, 120, 48)
-        # self.Q[1, :, :] *= 0.1
+        self.Q = np.zeros((2, 35, 24))
+        # self.Q = np.random.rand(2, 35, 24)
+        # self.Q[1, :, :] *= 0.05
 
-        print(self.R[1, 60:70, :5])
+        # print(self.R[1, 60:70, :5])
 
     def train_run(self):
 
@@ -76,12 +88,12 @@ class FlappyBird:
         clock = pygame.time.Clock()
         font = pygame.font.SysFont("Arial", 50)
         while self.gen_counter < self.max_gens:
-            print('='*20)
+            # print('=' * 20)
             if not self.dead:
 
                 self.step_counter += 1
 
-                clock.tick(2)
+                clock.tick(1000)
 
                 x_index = self.dx_to_index(self.bird_wall_dist())
                 y_index = self.dy_to_index(self.delta_y())
@@ -99,25 +111,32 @@ class FlappyBird:
 
                     else:
                         action_list = [action]
-                        print('Random action: ', action_list)
+                        # print('Random action: ', action_list)
 
                 else:
                     max_Q = np.max(self.Q[:, y_index, x_index])
                     action_list = np.argwhere(self.Q[:, y_index, x_index] == max_Q).flatten().tolist()
 
                     action_list = random.sample(action_list, len(action_list))
-                    print('non random actions are ', action_list)
+                    # print('non random actions are ', action_list)
 
-                print('going to state change')
-                state_change = None
+                # print('going to state change')
+                state_change = 0
                 for potential_action in action_list:
                     action = potential_action
 
                     if self.R[action, y_index, x_index] < 0:
+                        # print('bad move')
+                        # print('*' * 20)
+                        # print('*' * 20)
                         self.Q[action, y_index, x_index] = -1
                         continue
 
                     else:
+                        if not self.chain[0][2] == x_index:
+                            self.chain = np.roll(self.chain, 1, axis=0)
+                            state = [int(action), int(y_index), int(x_index)]
+                            self.chain[0] = state
                         state_change = Y_CHANGE_FROM_ACTION[action]
                         break
 
@@ -129,14 +148,23 @@ class FlappyBird:
 
                 max_Q = np.max(self.Q[:, new_y_index, x_index])
 
-                self.Q[action, new_y_index, x_index] = (1 - self.learning_rate) * self.Q[action, new_y_index, x_index] + \
-                                                       self.learning_rate * (self.R[
-                                                                                 action, new_y_index, x_index] + self.gamma * max_Q)
+                if new_y_index < 70:
+                    self.Q[action, new_y_index, x_index] = (1 - self.learning_rate) * self.Q[action, new_y_index, x_index] + \
+                                   self.learning_rate * (self.R[action, new_y_index, x_index] + self.gamma * max_Q)
+                elif new_y_index >= 70:
+                    self.Q[action, new_y_index, x_index] = -100
+                #(self.Q[action, new_y_index, x_index] < 0) or
 
+
+                # if  (self.Q[action, new_y_index, x_index] > 10):
                 print('updating {}, {}, {} to '.format(action, new_y_index, x_index), ' to ',
-                      self.Q[action, new_y_index, x_index])
+                  self.Q[action, new_y_index, x_index])
+                print('='*20)
 
                 print('dy: ', self.delta_y())
+                print('y: ', self.birdY)
+                print('dx: ', self.bird_wall_dist())
+                # print(self.chain)
 
                 if action:
                     self.jump = 17
@@ -154,7 +182,16 @@ class FlappyBird:
                                          (255, 255, 255)),
                              (200, 50))
             if self.dead:
+                print('dead')
                 self.sprite = 2
+                self.Q[action, new_y_index, x_index] = -100
+
+                for i in range(5):
+                    self.Q[tuple(self.chain[i])] = -100 + 20*i
+                    print('setting Q on ', self.chain[i], ' to ', -100 + 20*i)
+                # print('updating {}, {}, {} to '.format(action, new_y_index, x_index), ' to ',
+                #       self.Q[action, new_y_index, x_index])
+
             elif self.jump:
                 self.sprite = 1
             self.screen.blit(self.birdSprites[self.sprite], (self.birdX, self.birdY))
@@ -171,6 +208,14 @@ class FlappyBird:
                                               self.birdY))
 
             pygame.display.update()
+            # print('=' * 20)
+
+
+            self.previous_norm = self.current_norm
+            self.current_norm = np.linalg.norm(self.Q)
+            self.norm_diff = abs(self.previous_norm - self.current_norm)
+            print('prev norm: ', self.previous_norm, 'cur norm: ', self.current_norm, 'norm diff: ', self.norm_diff)
+            print(np.array_str(self.Q[1, 30:35, :10], precision=1))
 
     def bird_wall_dist(self):
         return self.wallx - self.birdX - 44
@@ -181,11 +226,11 @@ class FlappyBird:
 
     def dx_to_index(self, dx):
         xmin = -193.9  # When the wall is drawn at -80, the bird is at 70, bird is 44 wide
-        return int(dx - xmin) // 10
+        return int(dx - xmin) // 20
 
     def dy_to_index(self, dy):
         ymin = -264.9
-        return int(dy - ymin) // 10
+        return int(dy - ymin) // 20
 
     def updateWalls(self):
         self.wallx -= 2
@@ -213,10 +258,8 @@ class FlappyBird:
                                self.wallDown.get_width() - 10,
                                self.wallDown.get_height())
         if upRect.colliderect(self.bird):
-            print('died')
             self.dead = True
         if downRect.colliderect(self.bird):
-            print('died')
             self.dead = True
         if not 0 < self.bird[1] < 720:
             self.bird[1] = 50
